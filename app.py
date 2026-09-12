@@ -11,16 +11,14 @@ ssl._create_default_https_context = ssl._create_unverified_context
 
 st.set_page_config(page_title="Профессиональный Терминал Т-Банк", page_icon="📈", layout="wide")
 
-# НАСТРОЙКИ В САЙДБАРЕ (БОКОВОЙ ПАНЕЛИ)
+# НАСТРОЙКИ В САЙДБАРЕ
 st.sidebar.header("⚙️ Управление терминалом")
-
-# Переключатель режимов
 mode = st.sidebar.radio("Выберите контур:", ["Песочница (Sandbox)", "Боевой режим (Live)"])
 
 if mode == "Боевой режим (Live)":
     API_BASE_URL = "https://invest-public-api.tinkoff.ru/rest"
     st.sidebar.error("⚠️ ВНИМАНИЕ: Активирован боевой режим! Торговля ведется на реальные деньги.")
-    token_label = "Введите ваш Боевой токен Т-Инвестиций:"
+    token_label = "Введите ваш Боевой токен (с полными правами):"
 else:
     API_BASE_URL = "https://sandbox-invest-public-api.tinkoff.ru/rest"
     st.sidebar.success("🛡️ Учебный режим (Песочница). Риска нет.")
