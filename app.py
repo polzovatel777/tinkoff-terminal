@@ -37,13 +37,14 @@ if not PUBLIC_TOKEN:
 else:
     count = st_autorefresh(interval=15000, key="datarefresh")
 
+    # Точные инструменты с актуальными боевыми FIGI и рыночными ценами
     instruments = [
         {"name": "Сбер (акции)", "ticker": "SBER", "figi": "BBG004730N88", "fallback": 283.58},
         {"name": "Газпром (акции)", "ticker": "GAZP", "figi": "BBG004730RP0", "fallback": 92.53},
         {"name": "Т-Технологии (акции)", "ticker": "T", "figi": "TCS00A107UL4", "fallback": 261.10},
-        {"name": "Золото (Фьючерс)", "ticker": "GOLD", "figi": "FUTGOLD00001", "fallback": 2750.00},
-        {"name": "Нефть Brent (Фьючерс)", "ticker": "BR", "figi": "FUTBR0000001", "fallback": 74.00},
-        {"name": "Серебро (Фьючерс)", "ticker": "SILV", "figi": "FUTSILV00001", "fallback": 31.00}
+        {"name": "Золото (Фьючерс GLDBRUBF)", "ticker": "GLDBRUBF", "figi": "TCS00A1064V3", "fallback": 11718.70},
+        {"name": "Нефть Brent (Фьючерс BR)", "ticker": "BR-10.26", "figi": "TCS00A103V95", "fallback": 104.51},
+        {"name": "Серебро (Фьючерс SILV)", "ticker": "SILV-9.26", "figi": "TCS00A102W27", "fallback": 64.69}
     ]
 
     def get_market_prices(api_token, base_url, figi_list):
@@ -68,7 +69,7 @@ else:
     def get_historical_candles(api_token, base_url, figi, fallback_price):
         url = f"{base_url}/tinkoff.public.invest.api.contract.v1.MarketDataService/GetCandles"
         now = datetime.utcnow()
-        past = now - timedelta(days=10) # Берем больше дней для качественного расчета RSI
+        past = now - timedelta(days=10)
         payload = {
             "figi": figi,
             "from": past.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -102,7 +103,6 @@ else:
 
         return times, prices
 
-    # Функция расчета НАСТОЯЩЕГО математического RSI
     def calculate_rsi(prices, window=14):
         if len(prices) < window + 1:
             return 50.0
@@ -135,9 +135,8 @@ else:
             price_diff = current_price - start_p
             price_diff_pct = (price_diff / start_p) * 100 if start_p > 0 else 0.0
 
-            # Считаем точный RSI и трендовую фильтрацию (SMA)
             rsi_val = round(calculate_rsi(hist_prices), 1)
-            sma_val = sum(hist_prices[-5:]) / min(5, len(hist_prices)) # Краткосрочный тренд
+            sma_val = sum(hist_prices[-5:]) / min(5, len(hist_prices))
             trend_bullish = current_price >= sma_val
 
             with cols[i]:
@@ -146,11 +145,10 @@ else:
                 
                 st.metric(
                     label="Текущая цена", 
-                    value=f"{current_price:.2f} ₽", 
+                    value=f"{current_price:,.2f} ₽" if "Золото" in inst['name'] else f"{current_price:,.2f} пт", 
                     delta=f"{price_diff_pct:+.2f}%"
                 )
                 
-                # Продвинутая логика сигналов с фильтром тренда
                 if rsi_val <= 32 and trend_bullish:
                     st.success(f"🟢 СИГНАЛ: СИЛЬНЫЙ BUY (LONG)\n\nRSI: {rsi_val} (Дно + Тренд вверх)")
                     ai_comment = f"🤖 **ИИ-Советник:** Идеальная точка входа. RSI перепродан ({rsi_val}), тренд разворачивается вверх."
