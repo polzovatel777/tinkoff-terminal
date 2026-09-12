@@ -21,11 +21,10 @@ except Exception:
 API_BASE_URL = "https://invest-public-api.tinkoff.ru/rest"
 
 st.title("⚡ Institutional Trading Terminal [Alpha Engine]")
-st.markdown("Профессиональный мультиинституциональный терминал с разделением на секции Акций и Фьючерсов, ИИ-аналитиком и ATR-рисками.")
+st.markdown("Боевой институциональный терминал с подключением к реальным потокам данных Т-Банка.")
 
 # Сайдбар с настройками
 st.sidebar.markdown("### ⚙️ Параметры алгоритма")
-simulation_mode = st.sidebar.checkbox("🧪 Симуляция сигналов (для тестов)", value=False, help="Принудительно подсвечивает сетапы в нерабочее время.")
 min_confidence = st.sidebar.slider("Мин. индекс уверенности (Score %)", 50, 85, 65, help="Сигнал публикуется только если итоговый балл выше этого порога.")
 auto_refresh_sec = st.sidebar.slider("Частота обновления (сек)", 10, 60, 20)
 
@@ -36,41 +35,41 @@ current_hour_decimal = now_msk.hour + now_msk.minute / 60
 market_is_open = is_weekday and (7.0 <= current_hour_decimal <= 23.9)
 
 if market_is_open:
-    st.success("🟢 **Рынок активен:** Потоковые котировки и ИИ-анализ в режиме реального времени.")
+    st.success("🟢 **Боевой режим (Рынок активен):** Потоковые реальные котировки.")
 else:
-    st.info("🔴 **Рынок закрыт (или выходной):** Анализ на основе финальных баров сессии.")
+    st.info("🔴 **Боевой режим (Рынок закрыт):** Отображаются финальные котировки закрытия сессии Т-Банка.")
 
 if not PUBLIC_TOKEN:
     st.error("⚠️ Внимание: Токен не настроен в секретах хостинга Streamlit!")
 else:
     count = st_autorefresh(interval=auto_refresh_sec * 1000, key="datarefresh")
 
-    # База из 10 акций РФ
+    # База из 10 акций РФ (реальные FIGI Т-Банк)
     stocks_instruments = [
-        {"name": "Сбер (акции)", "ticker": "SBER", "figi": "BBG004730N88", "fallback": 283.58, "unit": "₽"},
-        {"name": "Газпром (акции)", "ticker": "GAZP", "figi": "BBG004730RP0", "fallback": 92.53, "unit": "₽"},
-        {"name": "Лукойл (акции)", "ticker": "LKOH", "figi": "BBG004730ZJ9", "fallback": 6850.0, "unit": "₽"},
-        {"name": "ГМК Норникель", "ticker": "GMKN", "figi": "BBG004731032", "fallback": 13400.0, "unit": "₽"},
-        {"name": "Т-Технологии", "ticker": "T", "figi": "TCS00A107UL4", "fallback": 261.10, "unit": "₽"},
-        {"name": "Роснефть", "ticker": "ROSN", "figi": "BBG004731ZN0", "fallback": 525.0, "unit": "₽"},
-        {"name": "НОВАТЭК", "ticker": "NVTK", "figi": "BBG004730JJ5", "fallback": 1050.0, "unit": "₽"},
-        {"name": "Сургутнефтегаз преф", "ticker": "SNGSP", "figi": "BBG004733355", "fallback": 55.20, "unit": "₽"},
-        {"name": "Магнит", "ticker": "MGNT", "figi": "BBG004S683W7", "fallback": 4820.0, "unit": "₽"},
-        {"name": "МТС", "ticker": "MTSS", "figi": "BBG004S68B88", "fallback": 220.50, "unit": "₽"}
+        {"name": "Сбер (акции)", "ticker": "SBER", "figi": "BBG004730N88", "unit": "₽"},
+        {"name": "Газпром (акции)", "ticker": "GAZP", "figi": "BBG004730RP0", "unit": "₽"},
+        {"name": "Лукойл (акции)", "ticker": "LKOH", "figi": "BBG004730ZJ9", "unit": "₽"},
+        {"name": "ГМК Норникель", "ticker": "GMKN", "figi": "BBG004731032", "unit": "₽"},
+        {"name": "Т-Технологии", "ticker": "T", "figi": "TCS00A107UL4", "unit": "₽"},
+        {"name": "Роснефть", "ticker": "ROSN", "figi": "BBG004731ZN0", "unit": "₽"},
+        {"name": "НОВАТЭК", "ticker": "NVTK", "figi": "BBG004730JJ5", "unit": "₽"},
+        {"name": "Сургутнефтегаз преф", "ticker": "SNGSP", "figi": "BBG004733355", "unit": "₽"},
+        {"name": "Магнит", "ticker": "MGNT", "figi": "BBG004S683W7", "unit": "₽"},
+        {"name": "МТС", "ticker": "MTSS", "figi": "BBG004S68B88", "unit": "₽"}
     ]
 
-    # База из 10 фьючерсов
+    # База из 10 фьючерсов (реальные FIGI Т-Банк)
     futures_instruments = [
-        {"name": "Золото (Фьючерс)", "ticker": "GLDBRUBF", "figi": "TCS00A1064V3", "fallback": 11718.70, "unit": "₽"},
-        {"name": "Нефть Brent (Фьючерс)", "ticker": "BR-10.26", "figi": "TCS00A103V95", "fallback": 104.51, "unit": "$"},
-        {"name": "Серебро (Фьючерс)", "ticker": "SILV-9.26", "figi": "TCS00A102W27", "fallback": 64.69, "unit": "$"},
-        {"name": "Доллар-Рубль (Si)", "ticker": "Si-9.26", "figi": "TCS00A103V61", "fallback": 92500.0, "unit": "пт"},
-        {"name": "Индекс РТС (Ri)", "ticker": "Ri-9.26", "figi": "TCS00A103V79", "fallback": 112000.0, "unit": "пт"},
-        {"name": "Юань-Рубль (CR)", "ticker": "CR-9.26", "figi": "TCS00A103V87", "fallback": 12850.0, "unit": "пт"},
-        {"name": "Природный газ (NG)", "ticker": "NG-9.26", "figi": "TCS00A1041W2", "fallback": 2.85, "unit": "$"},
-        {"name": "Медь (Фьючерс)", "ticker": "COPP-9.26", "figi": "TCS00A102W01", "fallback": 8600.0, "unit": "$"},
-        {"name": "Индекс Мосбиржи (MX)", "ticker": "MX-9.26", "figi": "TCS00A105X53", "fallback": 285000.0, "unit": "пт"},
-        {"name": "Платина (Фьючерс)", "ticker": "PLAT-9.26", "figi": "TCS00A102W35", "fallback": 34500.0, "unit": "$"}
+        {"name": "Золото (Фьючерс)", "ticker": "GLDBRUBF", "figi": "TCS00A1064V3", "unit": "₽"},
+        {"name": "Нефть Brent (Фьючерс)", "ticker": "BR-10.26", "figi": "TCS00A103V95", "unit": "$"},
+        {"name": "Серебро (Фьючерс)", "ticker": "SILV-9.26", "figi": "TCS00A102W27", "unit": "$"},
+        {"name": "Доллар-Рубль (Si)", "ticker": "Si-9.26", "figi": "TCS00A103V61", "unit": "пт"},
+        {"name": "Индекс РТС (Ri)", "ticker": "Ri-9.26", "figi": "TCS00A103V79", "unit": "пт"},
+        {"name": "Юань-Рубль (CR)", "ticker": "CR-9.26", "figi": "TCS00A103V87", "unit": "пт"},
+        {"name": "Природный газ (NG)", "ticker": "NG-9.26", "figi": "TCS00A1041W2", "unit": "$"},
+        {"name": "Медь (Фьючерс)", "ticker": "COPP-9.26", "figi": "TCS00A102W01", "unit": "$"},
+        {"name": "Индекс Мосбиржи (MX)", "ticker": "MX-9.26", "figi": "TCS00A105X53", "unit": "пт"},
+        {"name": "Платина (Фьючерс)", "ticker": "PLAT-9.26", "figi": "TCS00A102W35", "unit": "$"}
     ]
 
     all_instruments = stocks_instruments + futures_instruments
@@ -94,7 +93,7 @@ else:
             pass
         return prices
 
-    def get_candles_advanced(api_token, base_url, figi, interval_str, days_back, fallback_price):
+    def get_real_candles(api_token, base_url, figi, interval_str, days_back):
         url = f"{base_url}/tinkoff.public.invest.api.contract.v1.MarketDataService/GetCandles"
         now = datetime.utcnow()
         past = now - timedelta(days=days_back)
@@ -119,29 +118,15 @@ else:
                     hi_val = int(c.get("high", {}).get("units", 0)) + int(c.get("high", {}).get("nano", 0)) / 1e9
                     lo_val = int(c.get("low", {}).get("units", 0)) + int(c.get("low", {}).get("nano", 0)) / 1e9
                     cl_val = int(c.get("close", {}).get("units", 0)) + int(c.get("close", {}).get("nano", 0)) / 1e9
-                    vol_val = float(c.get("volume", 100))
+                    vol_val = float(c.get("volume", 0))
 
-                    highs.append(hi_val if hi_val > 0 else cl_val * 1.005)
-                    lows.append(lo_val if lo_val > 0 else cl_val * 0.995)
-                    closes.append(cl_val if cl_val > 0 else fallback_price)
-                    volumes.append(vol_val if vol_val > 0 else 100.0)
+                    if cl_val > 0:
+                        highs.append(hi_val)
+                        lows.append(lo_val)
+                        closes.append(cl_val)
+                        volumes.append(vol_val)
         except Exception:
             pass
-
-        if len(closes) < 5:
-            times, highs, lows, closes, volumes = [], [], [], [], []
-            base = fallback_price
-            for i in range(20):
-                t_point = (now - timedelta(hours=(20 - i) * 2)).strftime("%d.%m %H:%M")
-                times.append(t_point)
-                delta_val = ((i * 37 + int(fallback_price)) % 15 - 7) * (fallback_price * 0.001)
-                c_val = round(base + delta_val, 2)
-                closes.append(c_val)
-                highs.append(round(c_val * 1.008, 2))
-                lows.append(round(c_val * 0.992, 2))
-                volumes.append(1500.0 + (i * 45) % 500)
-                base = c_val
-
         return times, highs, lows, closes, volumes
 
     def calculate_rsi(prices, window=14):
@@ -179,19 +164,21 @@ else:
         return float(atr_val) if not pd.isna(atr_val) else closes[-1] * 0.01
 
     def volume_confirmation(volumes, window=10):
-        if len(volumes) < window:
+        if len(volumes) < window or sum(volumes) == 0:
             return True
         vol_series = pd.Series(volumes)
         avg_vol = vol_series.rolling(window=window).mean().iloc[-1]
         return volumes[-1] >= (avg_vol * 0.85)
 
     def compute_scoring_model(closes, highs, lows, volumes, daily_prices):
+        if not closes:
+            return 50, 1.0, True, 50.0
         rsi = calculate_rsi(closes)
         macd, signal, hist = calculate_macd(closes)
         atr = calculate_atr(highs, lows, closes)
         vol_ok = volume_confirmation(volumes)
         
-        daily_sma = sum(daily_prices[-15:]) / min(15, len(daily_prices))
+        daily_sma = sum(daily_prices[-15:]) / min(15, len(daily_prices)) if daily_prices else closes[-1]
         trend_up = closes[-1] >= daily_sma
 
         score = 50
@@ -210,33 +197,16 @@ else:
         final_score = max(5, min(98, score))
         return final_score, atr, trend_up, rsi
 
-    def generate_ai_narrative(ticker, score, rsi, trend_up, vol_ok):
-        bullish_intros = [
-            "Алгоритм фиксирует сильную зону интереса крупного капитала.",
-            "Наблюдается качественное поджатие цены к уровням сопротивления.",
-            "Институциональный поток ордеров сместился в сторону покупателей.",
-            "Техническая структура актива указывает на зарождение импульса."
-        ]
-        bearish_intros = [
-            "Давление продавцов нарастает на фоне фиксации позиций.",
-            "Алгоритмические шлюзы фиксируют перекупленность и риск отката.",
-            "Институционалы разгружают позиции по текущим котировкам.",
-            "Структура стакана и импульс указывают на доминирование медведей."
-        ]
-        neutral_intros = [
-            "Рынок находится в фазе накопления позиций и нащупывания баланса.",
-            "Ликвидность снижена, инструмент торгуется в узком диапазоне.",
-            "Наблюдается классическая пауза перед выходом из консолидации."
-        ]
-
-        intro = random.choice(bullish_intros if score >= 65 else (bearish_intros if score <= 35 else neutral_intros))
-        details = [f"RSI: {rsi:.1f}", "объемы в норме" if vol_ok else "пониженные объемы", "тренд вверх" if trend_up else "тренд вниз"]
-        conclusion = "Рекомендуется точечный вход." if abs(score - 50) > 15 else "Целесообразно воздержаться от сделок."
-        return f"🤖 **AI Analyst:** {intro} [{', '.join(details)}]. {conclusion}"
+    def generate_ai_narrative(score, rsi, trend_up, vol_ok):
+        bullish = ["Институциональный поток покупателей преобладает в стакане.", "Фиксируется качественное поджатие цены к уровню сопротивления."]
+        bearish = ["Наблюдается давление продавцов и фиксация маржинальных позиций.", "Алгоритмы фиксируют преобладание шорт-ликвидности."]
+        neutral = ["Инструмент в зоне консолидации, объемы торгов сбалансированы."]
+        
+        intro = random.choice(bullish if score >= 65 else (bearish if score <= 35 else neutral))
+        return f"🤖 **AI Analyst:** {intro} [RSI: {rsi:.1f}, Тренд: {'Лонг' if trend_up else 'Шорт'}]"
 
     live_prices = get_market_prices(PUBLIC_TOKEN, API_BASE_URL, [i["figi"] for i in all_instruments])
 
-    # Организация интерфейса по вкладкам
     tab_stocks, tab_futures, tab_scanner = st.tabs(["📈 Акции РФ (Top-10)", "⚡ Фьючерсы (Top-10)", "📊 Сводный сканер рынка"])
 
     def render_instrument_grid(instrument_list):
@@ -246,25 +216,27 @@ else:
             
             for i, inst in enumerate(row_items):
                 figi = inst["figi"]
-                times, highs, lows, closes, volumes = get_candles_advanced(PUBLIC_TOKEN, API_BASE_URL, figi, "CANDLE_INTERVAL_2_HOURS", 10, inst["fallback"])
-                _, _, _, daily_closes, _ = get_candles_advanced(PUBLIC_TOKEN, API_BASE_URL, figi, "CANDLE_INTERVAL_DAY", 30, inst["fallback"])
+                times, highs, lows, closes, volumes = get_real_candles(PUBLIC_TOKEN, API_BASE_URL, figi, "CANDLE_INTERVAL_2_HOURS", 10)
+                _, _, _, daily_closes, _ = get_real_candles(PUBLIC_TOKEN, API_BASE_URL, figi, "CANDLE_INTERVAL_DAY", 30)
                 
-                current_price = live_prices.get(figi, closes[-1])
-                start_p = closes[0] if closes else current_price
-                price_diff_pct = ((current_price - start_p) / start_p) * 100 if start_p > 0 else 0.0
-
-                score, atr, trend_up, rsi_val = compute_scoring_model(closes, highs, lows, volumes, daily_closes)
-                vol_ok = volume_confirmation(volumes)
-                
-                if simulation_mode:
-                    score = 78 if hash(inst['ticker'] + str(datetime.now().minute)) % 2 == 0 else 22
-
                 with cols[i]:
                     st.markdown(f"#### {inst['name']}")
                     st.text(f"Тикер: {inst['ticker']}")
                     
+                    if not closes:
+                        st.warning("⚠️ Нет данных с биржи (инструмент недоступен или рынок закрыт).")
+                        st.markdown("---")
+                        continue
+
+                    current_price = live_prices.get(figi, closes[-1])
+                    start_p = closes[0] if closes else current_price
+                    price_diff_pct = ((current_price - start_p) / start_p) * 100 if start_p > 0 else 0.0
+
+                    score, atr, trend_up, rsi_val = compute_scoring_model(closes, highs, lows, volumes, daily_closes)
+                    vol_ok = volume_confirmation(volumes)
+
                     st.metric(
-                        label="Текущая цена", 
+                        label="Цена (Т-Банк)", 
                         value=f"{current_price:,.2f} {inst['unit']}", 
                         delta=f"{price_diff_pct:+.2f}%"
                     )
@@ -282,7 +254,7 @@ else:
                         stop_loss = 0
                         take_profit = 0
 
-                    st.markdown(generate_ai_narrative(inst['ticker'], score, rsi_val, trend_up, vol_ok))
+                    st.markdown(generate_ai_narrative(score, rsi_val, trend_up, vol_ok))
 
                     if stop_loss > 0:
                         st.caption(f"🎯 **TP:** `{take_profit:,.2f} {inst['unit']}` | 🛡️ **SL:** `{stop_loss:,.2f} {inst['unit']}`")
@@ -296,24 +268,25 @@ else:
                     st.markdown("---")
 
     with tab_stocks:
-        st.markdown("### 📈 Аналитика по популярным Акциям РФ:")
+        st.markdown("### 📈 Реальные котировки акций РФ из API Т-Банка:")
         render_instrument_grid(stocks_instruments)
 
     with tab_futures:
-        st.markdown("### ⚡ Аналитика по популярным Фьючерсам:")
+        st.markdown("### ⚡ Реальные котировки фьючерсов из API Т-Банка:")
         render_instrument_grid(futures_instruments)
 
     with tab_scanner:
-        st.markdown("### 📊 Сводный сканер рынка (Все 20 инструментов):")
+        st.markdown("### 📊 Сводный сканер рынка (Боевой режим):")
         scanner_data = []
         for inst in all_instruments:
-            _, hi, lo, cl, vol = get_candles_advanced(PUBLIC_TOKEN, API_BASE_URL, inst["figi"], "CANDLE_INTERVAL_2_HOURS", 10, inst["fallback"])
-            _, _, _, d_cl, _ = get_candles_advanced(PUBLIC_TOKEN, API_BASE_URL, inst["figi"], "CANDLE_INTERVAL_DAY", 30, inst["fallback"])
+            _, hi, lo, cl, vol = get_real_candles(PUBLIC_TOKEN, API_BASE_URL, inst["figi"], "CANDLE_INTERVAL_2_HOURS", 10)
+            _, _, _, d_cl, _ = get_real_candles(PUBLIC_TOKEN, API_BASE_URL, inst["figi"], "CANDLE_INTERVAL_DAY", 30)
+            
+            if not cl:
+                continue
+                
             cp = live_prices.get(inst["figi"], cl[-1])
             sc, _, _, rsi = compute_scoring_model(cl, hi, lo, vol, d_cl)
-            
-            if simulation_mode:
-                sc = 75 if hash(inst['ticker']) % 2 == 0 else 30
 
             if sc >= min_confidence:
                 status = "🚀 Сильный BUY"
@@ -331,8 +304,11 @@ else:
                 "Статус": status
             })
         
-        df_scan = pd.DataFrame(scanner_data)
-        st.dataframe(df_scan, use_container_width=True, hide_index=True)
+        if scanner_data:
+            df_scan = pd.DataFrame(scanner_data)
+            st.dataframe(df_scan, use_container_width=True, hide_index=True)
+        else:
+            st.warning("Нет доступных данных по инструментам (проверьте подключение к API или статус биржи).")
 
-    update_time_str = now_msk.strftime("%d.%M.%Y в %H:%M:%S МСК")
-    st.caption(f"⏳ Institutional Trading Engine | Синхронизировано: {update_time_str}")
+    update_time_str = now_msk.strftime("%d.%m.%Y в %H:%M:%S МСК")
+    st.caption(f"⏳ Institutional Trading Engine (Live API) | Синхронизировано: {update_time_str}")
