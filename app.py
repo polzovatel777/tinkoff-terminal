@@ -7,11 +7,10 @@ import numpy as np
 import plotly.express as px
 from datetime import datetime, timedelta
 from streamlit_autorefresh import st_autorefresh
-import random
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
-st.set_page_config(page_title="Institutional Trading Terminal [Alpha Engine]", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="Institutional Trading Terminal [Clean Alpha]", page_icon="⚡", layout="wide")
 
 try:
     PUBLIC_TOKEN = st.secrets["PUBLIC_TOKEN"]
@@ -20,21 +19,22 @@ except Exception:
 
 API_BASE_URL = "https://invest-public-api.tinkoff.ru/rest"
 
-st.title("⚡ Institutional Trading Terminal [Alpha Engine]")
-st.markdown("Боевой институциональный терминал с синхронизацией данных торговых сессий Т-Банка.")
+st.title("⚡ Institutional Trading Terminal [Clean Alpha Engine]")
+st.markdown("Чистый боевой терминал с прямым шлюзом к биржевым данным Т-Банка.")
 
-# Сайдбар с настройками
-st.sidebar.markdown("### ⚙️ Параметры алгоритма")
-min_confidence = st.sidebar.slider("Мин. индекс уверенности (Score %)", 50, 85, 65)
+# Сайдбар управления
+st.sidebar.markdown("### ⚙️ Параметры системы")
+min_confidence = st.sidebar.slider("Мин. порог уверенности (Score %)", 50, 85, 60)
 auto_refresh_sec = st.sidebar.slider("Частота обновления (сек)", 10, 60, 20)
 
-st.success("🟢 **Боевой режим активен:** Потоковое сканирование котировок и вечерней сессии.")
+st.success("🟢 **Шлюз активен:** Потоковое получение реальных рыночных данных.")
 
 if not PUBLIC_TOKEN:
-    st.error("⚠️ Внимание: Токен не настроен в секретах хостинга Streamlit!")
+    st.error("⚠️ Ошибка конфигурации: Токен API не обнаружен в secrets!")
 else:
-    count = st_autorefresh(interval=auto_refresh_sec * 1000, key="datarefresh")
+    st_autorefresh(interval=auto_refresh_sec * 1000, key="datarefresh")
 
+    # Официальные инструменты с точными FIGI
     stocks_instruments = [
         {"name": "Сбер (акции)", "ticker": "SBER", "figi": "BBG004730N88", "unit": "₽"},
         {"name": "Газпром (акции)", "ticker": "GAZP", "figi": "BBG004730RP0", "unit": "₽"},
@@ -63,7 +63,7 @@ else:
 
     all_instruments = stocks_instruments + futures_instruments
 
-    def get_market_prices(api_token, base_url, figi_list):
+    def fetch_market_data(api_token, base_url, figi_list):
         url = f"{base_url}/tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices"
         payload = {"figi": figi_list}
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_token.strip()}"}
@@ -82,10 +82,10 @@ else:
             pass
         return prices
 
-    def get_real_candles(api_token, base_url, figi, interval_str, days_back=15):
+    def fetch_candles(api_token, base_url, figi, interval_str="CANDLE_INTERVAL_2_HOURS", days=10):
         url = f"{base_url}/tinkoff.public.invest.api.contract.v1.MarketDataService/GetCandles"
         now = datetime.utcnow()
-        past = now - timedelta(days=days_back)
+        past = now - timedelta(days=days)
         payload = {
             "figi": figi,
             "from": past.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -101,213 +101,175 @@ else:
                 for c in data.get("candles", []):
                     t_str = c.get("time", "")
                     if t_str:
-                        dt = datetime.strptime(t_str[:19], "%Y-%m-%dT%H:%M:%S") + timedelta(hours=3) # перевод в МСК
+                        dt = datetime.strptime(t_str[:19], "%Y-%m-%dT%H:%M:%S") + timedelta(hours=3)
                         times.append(dt.strftime("%d.%m %H:%M"))
                     
-                    hi_val = int(c.get("high", {}).get("units", 0)) + int(c.get("high", {}).get("nano", 0)) / 1e9
-                    lo_val = int(c.get("low", {}).get("units", 0)) + int(c.get("low", {}).get("nano", 0)) / 1e9
-                    cl_val = int(c.get("close", {}).get("units", 0)) + int(c.get("close", {}).get("nano", 0)) / 1e9
-                    vol_val = float(c.get("volume", 0))
+                    hi = int(c.get("high", {}).get("units", 0)) + int(c.get("high", {}).get("nano", 0)) / 1e9
+                    lo = int(c.get("low", {}).get("units", 0)) + int(c.get("low", {}).get("nano", 0)) / 1e9
+                    cl = int(c.get("close", {}).get("units", 0)) + int(c.get("close", {}).get("nano", 0)) / 1e9
+                    vol = float(c.get("volume", 0))
 
-                    if cl_val > 0:
-                        highs.append(hi_val)
-                        lows.append(lo_val)
-                        closes.append(cl_val)
-                        volumes.append(vol_val)
+                    if cl > 0:
+                        highs.append(hi)
+                        lows.append(lo)
+                        closes.append(cl)
+                        volumes.append(vol)
         except Exception:
             pass
         return times, highs, lows, closes, volumes
 
-    def calculate_rsi(prices, window=14):
-        if len(prices) < window + 1:
-            return 50.0
-        df = pd.DataFrame({'price': prices})
+    def compute_indicators(closes, highs, lows, volumes):
+        if len(closes) < 5:
+            return 50.0, 0.0, 0.0, 0.0, 1.0, True
+        
+        df = pd.DataFrame({'price': closes})
         delta = df['price'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        val = rsi.iloc[-1]
-        return 50.0 if pd.isna(val) else float(val)
+        rsi = float((100 - (100 / (1 + rs))).iloc[-1])
+        rsi = 50.0 if pd.isna(rsi) else rsi
 
-    def calculate_macd(prices):
-        if len(prices) < 26:
-            return 0.0, 0.0, 0.0
-        df = pd.DataFrame({'price': prices})
         exp12 = df['price'].ewm(span=12, adjust=False).mean()
         exp26 = df['price'].ewm(span=26, adjust=False).mean()
-        macd = exp12 - exp26
-        signal = macd.ewm(span=9, adjust=False).mean()
-        hist = macd - signal
-        return float(macd.iloc[-1]), float(signal.iloc[-1]), float(hist.iloc[-1])
+        macd_val = float((exp12 - exp26).iloc[-1])
+        signal_val = float((exp12 - exp26).ewm(span=9, adjust=False).mean().iloc[-1])
+        hist_val = macd_val - signal_val
 
-    def calculate_atr(highs, lows, closes, window=14):
-        if len(closes) < window + 1:
-            return closes[-1] * 0.01 if closes else 1.0
-        df = pd.DataFrame({'high': highs, 'low': lows, 'close': closes})
-        df['tr1'] = df['high'] - df['low']
-        df['tr2'] = abs(df['high'] - df['close'].shift(1))
-        df['tr3'] = abs(df['low'] - df['close'].shift(1))
-        df['tr'] = df[['tr1', 'tr2', 'tr3']].max(axis=1)
-        atr_val = df['tr'].rolling(window=window).mean().iloc[-1]
-        return float(atr_val) if not pd.isna(atr_val) else closes[-1] * 0.01
+        cdf = pd.DataFrame({'high': highs, 'low': lows, 'close': closes})
+        tr1 = cdf['high'] - cdf['low']
+        tr2 = abs(cdf['high'] - cdf['close'].shift(1))
+        tr3 = abs(cdf['low'] - cdf['close'].shift(1))
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        atr = float(tr.rolling(window=14).mean().iloc[-1])
+        atr = closes[-1] * 0.01 if pd.isna(atr) or atr == 0 else atr
 
-    def volume_confirmation(volumes, window=10):
-        if len(volumes) < window or sum(volumes) == 0:
-            return True
-        vol_series = pd.Series(volumes)
-        avg_vol = vol_series.rolling(window=window).mean().iloc[-1]
-        return volumes[-1] >= (avg_vol * 0.7)
+        vol_ok = True
+        if len(volumes) >= 10:
+            avg_v = pd.Series(volumes).rolling(window=10).mean().iloc[-1]
+            vol_ok = volumes[-1] >= (avg_v * 0.7)
 
-    def compute_scoring_model(closes, highs, lows, volumes, daily_prices):
+        return rsi, macd_val, signal_val, hist_val, atr, vol_ok
+
+    def evaluate_score(closes, rsi, macd, signal, hist, vol_ok):
         if not closes:
-            return 50, 1.0, True, 50.0
-        rsi = calculate_rsi(closes)
-        macd, signal, hist = calculate_macd(closes)
-        atr = calculate_atr(highs, lows, closes)
-        vol_ok = volume_confirmation(volumes)
+            return 50, "Ожидание"
         
-        daily_sma = sum(daily_prices[-15:]) / min(15, len(daily_prices)) if daily_prices else closes[-1]
-        trend_up = closes[-1] >= daily_sma
-
         score = 50
+        trend_up = closes[-1] >= closes[0]
+        
         if trend_up: score += 20
         else: score -= 20
 
         if rsi <= 45: score += 25
         elif rsi >= 55: score -= 25
 
-        if vol_ok: score += 15
-        else: score -= 10
-
         if hist > 0 and macd > signal: score += 25
         elif hist < 0 and macd < signal: score -= 25
 
-        return max(5, min(98, score)), atr, trend_up, rsi
+        if vol_ok: score += 10
+        else: score -= 10
 
-    def generate_ai_narrative(score, rsi, trend_up, vol_ok):
-        bullish = ["Поток ордеров в стакане указывает на активность покупателей.", "Цена поджимается к локальным уровням сопротивления."]
-        bearish = ["Фиксируется давление продавцов и перераспределение позиций.", "Алгоритмические шлюзы фиксируют локальный откат."]
-        neutral = ["Инструмент в зоне консолидации, ликвидность сбалансирована."]
-        
-        intro = random.choice(bullish if score >= 65 else (bearish if score <= 35 else neutral))
-        return f"🤖 **AI Analyst:** {intro} [RSI: {rsi:.1f}, Тренд: {'Лонг' if trend_up else 'Шорт'}]"
+        final_score = max(5, min(95, score))
+        return final_score, trend_up
 
-    live_prices = get_market_prices(PUBLIC_TOKEN, API_BASE_URL, [i["figi"] for i in all_instruments])
+    live_prices = fetch_market_data(PUBLIC_TOKEN, API_BASE_URL, [i["figi"] for i in all_instruments])
 
-    tab_stocks, tab_futures, tab_scanner = st.tabs(["📈 Акции РФ (Top-10)", "⚡ Фьючерсы (Top-10)", "📊 Сводный сканер рынка"])
+    tab_stocks, tab_futures, tab_scanner = st.tabs(["📈 Акции РФ (Top-10)", "⚡ Фьючерсы (Top-10)", "📊 Сводный сканер"])
 
-    def render_instrument_grid(instrument_list):
-        for row_start in range(0, len(instrument_list), 3):
+    def render_grid(instruments):
+        for start in range(0, len(instruments), 3):
             cols = st.columns(3)
-            row_items = instrument_list[row_start:row_start + 3]
-            
-            for i, inst in enumerate(row_items):
+            batch = instruments[start:start+3]
+            for idx, inst in enumerate(batch):
                 figi = inst["figi"]
-                times, highs, lows, closes, volumes = get_real_candles(PUBLIC_TOKEN, API_BASE_URL, figi, "CANDLE_INTERVAL_2_HOURS", 15)
-                _, _, _, daily_closes, _ = get_real_candles(PUBLIC_TOKEN, API_BASE_URL, figi, "CANDLE_INTERVAL_DAY", 30)
+                times, highs, lows, closes, volumes = fetch_candles(PUBLIC_TOKEN, API_BASE_URL, figi, "CANDLE_INTERVAL_2_HOURS", 15)
                 
-                with cols[i]:
+                current_price = live_prices.get(figi, (closes[-1] if closes else 0.0))
+                if current_price == 0.0:
+                    with cols[idx]:
+                        st.markdown(f"#### {inst['name']}")
+                        st.text(f"Тикер: {inst['ticker']}")
+                        st.warning("⚠️ Нет котировок в стакане.")
+                        st.markdown("---")
+                    continue
+
+                if not closes:
+                    closes = [current_price]
+                    highs = [current_price * 1.002]
+                    lows = [current_price * 0.998]
+                    volumes = [100.0]
+
+                start_p = closes[0]
+                pct_change = ((current_price - start_p) / start_p) * 100 if start_p > 0 else 0.0
+
+                rsi, macd, signal, hist, atr, vol_ok = compute_indicators(closes, highs, lows, volumes)
+                score, trend_up = evaluate_score(closes, rsi, macd, signal, hist, vol_ok)
+
+                with cols[idx]:
                     st.markdown(f"#### {inst['name']}")
                     st.text(f"Тикер: {inst['ticker']}")
                     
-                    # Если свечей по какой-то причине мало, берем цену из последних котировок или заменяем заглушкой из стакана
-                    current_price = live_prices.get(figi, (closes[-1] if closes else 0.0))
-                    
-                    if current_price == 0.0 and closes:
-                        current_price = closes[-1]
-
-                    if current_price == 0.0:
-                        st.warning("⚠️ Ожидание потока котировок...")
-                        st.markdown("---")
-                        continue
-
-                    if not closes:
-                        closes = [current_price]
-                        highs = [current_price * 1.005]
-                        lows = [current_price * 0.995]
-                        volumes = [1000.0]
-
-                    start_p = closes[0] if closes else current_price
-                    price_diff_pct = ((current_price - start_p) / start_p) * 100 if start_p > 0 else 0.0
-
-                    score, atr, trend_up, rsi_val = compute_scoring_model(closes, highs, lows, volumes, daily_closes)
-                    vol_ok = volume_confirmation(volumes)
-
                     st.metric(
-                        label="Цена (Т-Банк)", 
+                        label="Цена сделки", 
                         value=f"{current_price:,.2f} {inst['unit']}", 
-                        delta=f"{price_diff_pct:+.2f}%"
+                        delta=f"{pct_change:+.2f}%"
                     )
-                    
+
                     if score >= min_confidence:
-                        st.success(f"🟢 СИГНАЛ: BUY (LONG)\n\nScore: {score}% | RSI: {rsi_val:.1f}")
-                        stop_loss = current_price - (1.5 * atr)
-                        take_profit = current_price + (3.5 * atr)
+                        st.success(f"🟢 BUY (LONG) | Score: {score}%\nRSI: {rsi:.1f}")
+                        sl = current_price - (1.5 * atr)
+                        tp = current_price + (3.5 * atr)
                     elif score <= (100 - min_confidence):
-                        st.error(f"🔴 СИГНАЛ: SHORT\n\nScore: {score}% | RSI: {rsi_val:.1f}")
-                        stop_loss = current_price + (1.5 * atr)
-                        take_profit = current_price - (3.5 * atr)
+                        st.error(f"🔴 SHORT | Score: {score}%\nRSI: {rsi:.1f}")
+                        sl = current_price + (1.5 * atr)
+                        tp = current_price - (3.5 * atr)
                     else:
-                        st.warning(f"🟡 СИГНАЛ: НАБЛЮДЕНИЕ\n\nScore: {score}% | RSI: {rsi_val:.1f}")
-                        stop_loss = 0
-                        take_profit = 0
+                        st.warning(f"🟡 HOLD | Score: {score}%\nRSI: {rsi:.1f}")
+                        sl, tp = 0, 0
 
-                    st.markdown(generate_ai_narrative(score, rsi_val, trend_up, vol_ok))
+                    if sl > 0:
+                        st.caption(f"🎯 **TP:** `{tp:,.2f}` | 🛡️ **SL:** `{sl:,.2f}`")
 
-                    if stop_loss > 0:
-                        st.caption(f"🎯 **TP:** `{take_profit:,.2f} {inst['unit']}` | 🛡️ **SL:** `{stop_loss:,.2f} {inst['unit']}`")
-
-                    df_chart = pd.DataFrame({"Время": times if times else ["Сейчас"], "Цена": closes})
-                    fig = px.line(df_chart, x="Время", y="Цена", markers=True, template="plotly_dark")
-                    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=150, xaxis=dict(showgrid=False), yaxis=dict(showgrid=True))
-                    fig.update_traces(line=dict(color="#00FFA3", width=2), marker=dict(size=3))
-
+                    df_plot = pd.DataFrame({"Время": times if times else ["Сейчас"], "Цена": closes})
+                    fig = px.line(df_plot, x="Время", y="Цена", template="plotly_dark")
+                    fig.update_layout(margin=dict(l=5, r=5, t=5, b=5), height=130, xaxis=dict(showgrid=False), yaxis=dict(showgrid=True))
+                    fig.update_traces(line=dict(color="#00FFA3", width=2))
                     st.plotly_chart(fig, use_container_width=True)
                     st.markdown("---")
 
     with tab_stocks:
-        st.markdown("### 📈 Акции РФ (Live API):")
-        render_instrument_grid(stocks_instruments)
+        st.markdown("### Акции РФ — Прямой поток:")
+        render_grid(stocks_instruments)
 
     with tab_futures:
-        st.markdown("### ⚡ Фьючерсы (Live API):")
-        render_instrument_grid(futures_instruments)
+        st.markdown("### Фьючерсы — Прямой поток:")
+        render_grid(futures_instruments)
 
     with tab_scanner:
-        st.markdown("### 📊 Сводный сканер рынка:")
-        scanner_data = []
+        st.markdown("### Сводная таблица сканирования рынка:")
+        scan_results = []
         for inst in all_instruments:
-            _, hi, lo, cl, vol = get_real_candles(PUBLIC_TOKEN, API_BASE_URL, inst["figi"], "CANDLE_INTERVAL_2_HOURS", 15)
-            _, _, _, d_cl, _ = get_real_candles(PUBLIC_TOKEN, API_BASE_URL, inst["figi"], "CANDLE_INTERVAL_DAY", 30)
-            
+            _, hi, lo, cl, vol = fetch_candles(PUBLIC_TOKEN, API_BASE_URL, inst["figi"], "CANDLE_INTERVAL_2_HOURS", 15)
             cp = live_prices.get(inst["figi"], (cl[-1] if cl else 0.0))
             if cp == 0.0:
                 continue
-                
-            sc, _, _, rsi = compute_scoring_model(cl, hi, lo, vol, d_cl)
+            rsi, macd, signal, hist, atr, vol_ok = compute_indicators(cl, hi, lo, vol)
+            score, _ = evaluate_score(cl, rsi, macd, signal, hist, vol_ok)
 
-            if sc >= min_confidence:
-                status = "🚀 Сильный BUY"
-            elif sc <= (100 - min_confidence):
-                status = "📉 Сильный SHORT"
-            else:
-                status = "⏳ Ожидание"
-
-            scanner_data.append({
+            status = "🚀 LONG" if score >= min_confidence else ("📉 SHORT" if score <= (100 - min_confidence) else "⏳ NEUTRAL")
+            scan_results.append({
                 "Инструмент": inst["name"],
                 "Тикер": inst["ticker"],
                 "Цена": f"{cp:,.2f} {inst['unit']}",
                 "RSI": round(rsi, 1),
-                "Score": f"{sc}%",
-                "Статус": status
+                "Score": f"{score}%",
+                "Сигнал": status
             })
-        
-        if scanner_data:
-            df_scan = pd.DataFrame(scanner_data)
-            st.dataframe(df_scan, use_container_width=True, hide_index=True)
+
+        if scan_results:
+            st.dataframe(pd.DataFrame(scan_results), use_container_width=True, hide_index=True)
         else:
             st.warning("Сбор данных сканера...")
 
-    update_time_str = (datetime.utcnow() + timedelta(hours=3)).strftime("%d.%m.%Y в %H:%M:%S МСК")
-    st.caption(f"⏳ Institutional Trading Engine (Live API) | Синхронизировано: {update_time_str}")
+    st.caption(f"⏳ Синхронизация: {(datetime.utcnow() + timedelta(hours=3)).strftime('%d.%m.%Y %H:%M:%S')} МСК")
