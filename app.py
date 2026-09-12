@@ -11,16 +11,31 @@ ssl._create_default_https_context = ssl._create_unverified_context
 
 st.set_page_config(page_title="Профессиональный Терминал Т-Банк", page_icon="📈", layout="wide")
 
-st.title("📈 Профессиональный Торговый Терминал (Исторические данные и ИИ)")
-st.markdown("Анализ реальных рыночных трендов, котировки Т-Банка и история торгов.")
+# НАСТРОЙКИ В САЙДБАРЕ (БОКОВОЙ ПАНЕЛИ)
+st.sidebar.header("⚙️ Управление терминалом")
 
-token = st.text_input("Введите ваш токен Т-Инвестиций (Песочница):", type="password")
+# Переключатель режимов
+mode = st.sidebar.radio("Выберите контур:", ["Песочница (Sandbox)", "Боевой режим (Live)"])
+
+if mode == "Боевой режим (Live)":
+    API_BASE_URL = "https://invest-public-api.tinkoff.ru/rest"
+    st.sidebar.error("⚠️ ВНИМАНИЕ: Активирован боевой режим! Торговля ведется на реальные деньги.")
+    token_label = "Введите ваш Боевой токен Т-Инвестиций:"
+else:
+    API_BASE_URL = "https://sandbox-invest-public-api.tinkoff.ru/rest"
+    st.sidebar.success("🛡️ Учебный режим (Песочница). Риска нет.")
+    token_label = "Введите ваш токен Песочницы:"
+
+st.title(f"📈 Торговый Терминал Т-Банк [{mode}]")
+st.markdown("Профессиональный анализ рынка, исторические котировки и ИИ-советник.")
+
+token = st.text_input(token_label, type="password")
 
 if not token:
-    st.warning("Пожалуйста, введите токен песочницы для продолжения.")
+    st.warning("Пожалуйста, введите токен доступа для продолжения.")
 else:
-    def get_sandbox_accounts(api_token):
-        url = "https://sandbox-invest-public-api.tinkoff.ru/rest/tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts"
+    def get_accounts(api_token, base_url):
+        url = f"{base_url}/tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts"
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_token.strip()}"
@@ -33,7 +48,7 @@ else:
         except Exception:
             return None
 
-    accounts = get_sandbox_accounts(token)
+    accounts = get_accounts(token, API_BASE_URL)
     
     if accounts is not None:
         count = st_autorefresh(interval=15000, key="datarefresh")
@@ -47,9 +62,8 @@ else:
             {"name": "Серебро (Фьючерс)", "ticker": "SILV", "figi": "FUTSILV00001", "fallback": 31.20, "base_rsi": 50}
         ]
 
-        # Функция запроса актуальных цен
-        def get_market_prices(api_token, figi_list):
-            url = "https://sandbox-invest-public-api.tinkoff.ru/rest/tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices"
+        def get_market_prices(api_token, base_url, figi_list):
+            url = f"{base_url}/tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices"
             payload = {"figi": figi_list}
             headers = {
                 "Content-Type": "application/json",
@@ -68,11 +82,10 @@ else:
                 pass
             return prices
 
-        # Функция загрузки реальных исторических свечей с биржи
-        def get_historical_candles(api_token, figi, fallback_price):
-            url = "https://sandbox-invest-public-api.tinkoff.ru/rest/tinkoff.public.invest.api.contract.v1.MarketDataService/GetCandles"
+        def get_historical_candles(api_token, base_url, figi, fallback_price):
+            url = f"{base_url}/tinkoff.public.invest.api.contract.v1.MarketDataService/GetCandles"
             now = datetime.utcnow()
-            past = now - timedelta(days=2) # Запрос за последние 2 дня
+            past = now - timedelta(days=2)
             payload = {
                 "figi": figi,
                 "from": past.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -101,7 +114,6 @@ else:
             except Exception:
                 pass
 
-            # Если биржа не вернула историю (пустая песочница), создаем профессиональный симулятор тренда
             if len(prices) < 5:
                 times = []
                 prices = []
@@ -109,14 +121,13 @@ else:
                 for i in range(12):
                     t_point = (now - timedelta(hours=(12 - i) * 2)).strftime("%d.%m %H:%M")
                     times.append(t_point)
-                    # Создаем красивое волатильное движение на основе хэша
                     shift = ((i * 37 + int(fallback_price)) % 11 - 5) * (fallback_price * 0.003)
                     base += shift
                     prices.append(round(base, 2))
 
             return times, prices
 
-        prices = get_market_prices(token, [i["figi"] for i in instruments])
+        prices = get_market_prices(token, API_BASE_URL, [i["figi"] for i in instruments])
 
         st.markdown("### 📊 Рыночные инструменты и история торгов:")
         
@@ -130,10 +141,8 @@ else:
                 if current_price == 0:
                     current_price = inst["fallback"] 
 
-                # Получаем реальную историю для графика
-                times, hist_prices = get_historical_candles(token, figi, current_price)
+                times, hist_prices = get_historical_candles(token, API_BASE_URL, figi, current_price)
                 
-                # Считаем изменение по сравнению с началом истории
                 start_p = hist_prices[0] if hist_prices else current_price
                 price_diff = current_price - start_p
                 price_diff_pct = (price_diff / start_p) * 100 if start_p > 0 else 0.0
@@ -153,17 +162,16 @@ else:
 
                     if rsi_val <= 30:
                         st.success(f"🟢 СИГНАЛ: ПОКУПАТЬ (LONG)\n\nRSI: {rsi_val} (Перепроданность)")
-                        ai_comment = f"🤖 **ИИ-Советник:** Зона перепроданности (RSI {rsi_val}). Исторический паттерн указывает на вероятный разворот вверх."
+                        ai_comment = f"🤖 **ИИ-Советник:** Зона перепроданности (RSI {rsi_val}). Разворотная формация."
                     elif rsi_val >= 70:
                         st.error(f"🔴 СИГНАЛ: ПРОДАВАТЬ / ШОРТ\n\nRSI: {rsi_val} (Перекупленность)")
-                        ai_comment = f"🤖 **ИИ-Советник:** Индикатор RSI на уровне {rsi_val}. Перегрев рынка, высок риск коррекции."
+                        ai_comment = f"🤖 **ИИ-Советник:** Индикатор RSI на уровне {rsi_val}. Перегрев актива."
                     else:
                         st.warning(f"🟡 СИГНАЛ: УДЕРЖИВАТЬ (NEUTRAL)\n\nRSI: {rsi_val} (Зона баланса)")
-                        ai_comment = f"🤖 **ИИ-Советник:** Сбалансированный рынок (RSI {rsi_val}). Наблюдается флэт в торговом диапазоне."
+                        ai_comment = f"🤖 **ИИ-Советник:** Сбалансированный рынок (RSI {rsi_val}). Флэт."
 
                     st.markdown(ai_comment)
 
-                    # ПРОФЕССИОНАЛЬНЫЙ ФИКСИРОВАННЫЙ ГРАФИК
                     df_chart = pd.DataFrame({
                         "Время": times,
                         "Цена": hist_prices
@@ -177,7 +185,6 @@ else:
                         template="plotly_dark"
                     )
                     
-                    # Жестко фиксируем размеры, убираем лишние сдвиги и масштабируем ось Y
                     fig.update_layout(
                         margin=dict(l=10, r=10, t=10, b=10),
                         height=190,
@@ -189,7 +196,7 @@ else:
                     st.plotly_chart(fig, use_container_width=True)
                     st.markdown("---")
 
-        st.caption(f"⏳ Синхронизация с сервером Т-Банка активна. Обновление статусов: цикл {count}.")
+        st.caption(f"⏳ Режим: {mode}. Синхронизация активна.")
 
     else:
-        st.error("Ошибка авторизации. Проверьте правильность токена песочницы.")
+        st.error("Ошибка авторизации. Проверьте правильность введенного токена для выбранного режима.")
