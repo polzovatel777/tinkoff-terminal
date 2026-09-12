@@ -11,7 +11,7 @@ ssl._create_default_https_context = ssl._create_unverified_context
 
 st.set_page_config(page_title="Профессиональный Терминал Т-Банк", page_icon="📈", layout="wide")
 
-# Безопасное чтение токена из секретов хостинга (никто посторонний его не увидит)
+# Чтение безопасного токена из секретов хостинга
 try:
     PUBLIC_TOKEN = st.secrets["PUBLIC_TOKEN"]
 except Exception:
@@ -22,9 +22,23 @@ API_BASE_URL = "https://invest-public-api.tinkoff.ru/rest"
 st.title("📈 Профессиональный Терминал Т-Банк [Live Data]")
 st.markdown("Публичная аналитика рынка, реальные котировки, графики и ИИ-сигналы в реальном времени.")
 
+# Проверяем статус Московской биржи (MOEX)
+# Биржа работает Пн-Пт примерно с 07:00 до 23:50 мск (в упрощенном виде)
+now_utc = datetime.utcnow()
+now_msk = now_utc + timedelta(hours=3) # Московское время (UTC+3)
+is_weekday = now_msk.weekday() < 5
+current_hour_decimal = now_msk.hour + now_msk.minute / 60
+market_is_open = is_weekday and (7.0 <= current_hour_decimal <= 23.9)
+
+if market_is_open:
+    st.success("🟢 **Биржа открыта:** Основная торговая сессия активна. Котировки в реальном времени.")
+else:
+    st.info("🔴 **Биржа закрыта:** Торги по инструментам не проводятся (выходной/ночное время). Отображаются последние актуальные цены закрытия.")
+
 if not PUBLIC_TOKEN:
     st.error("⚠️ Внимание: Токен не настроен в секретах хостинга! Добавьте переменную PUBLIC_TOKEN в настройках Streamlit Cloud.")
 else:
+    # Автообновление каждые 15 секунд
     count = st_autorefresh(interval=15000, key="datarefresh")
 
     instruments = [
@@ -173,4 +187,5 @@ else:
                 st.plotly_chart(fig, use_container_width=True)
                 st.markdown("---")
 
-    st.caption("⏳ Прямое публичное подключение к API Т-Инвестиций. Данные обновляются автоматически.")
+    update_time_str = now_msk.strftime("%d.%m.%Y в %H:%M:%S МСК")
+    st.caption(f"⏳ Данные получены через API Т-Инвестиций | Последнее обновление: {update_time_str}")
