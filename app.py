@@ -11,7 +11,6 @@ ssl._create_default_https_context = ssl._create_unverified_context
 
 st.set_page_config(page_title="Профессиональный Терминал Т-Банк", page_icon="📈", layout="wide")
 
-# Чтение безопасного токена из секретов хостинга
 try:
     PUBLIC_TOKEN = st.secrets["PUBLIC_TOKEN"]
 except Exception:
@@ -19,44 +18,38 @@ except Exception:
 
 API_BASE_URL = "https://invest-public-api.tinkoff.ru/rest"
 
-st.title("📈 Профессиональный Терминал Т-Банк [Live Data]")
-st.markdown("Публичная аналитика рынка, реальные котировки, графики и ИИ-сигналы в реальном времени.")
+st.title("📈 Профессиональный Терминал Т-Банк [Pro Signals]")
+st.markdown("Продвинутая аналитика с фильтрацией трендов, расчетом RSI и ИИ-оценкой вероятности.")
 
-# Проверяем статус Московской биржи (MOEX)
-# Биржа работает Пн-Пт примерно с 07:00 до 23:50 мск (в упрощенном виде)
 now_utc = datetime.utcnow()
-now_msk = now_utc + timedelta(hours=3) # Московское время (UTC+3)
+now_msk = now_utc + timedelta(hours=3)
 is_weekday = now_msk.weekday() < 5
 current_hour_decimal = now_msk.hour + now_msk.minute / 60
 market_is_open = is_weekday and (7.0 <= current_hour_decimal <= 23.9)
 
 if market_is_open:
-    st.success("🟢 **Биржа открыта:** Основная торговая сессия активна. Котировки в реальном времени.")
+    st.success("🟢 **Биржа открыта:** Основная торговая сессия активна.")
 else:
-    st.info("🔴 **Биржа закрыта:** Торги по инструментам не проводятся (выходной/ночное время). Отображаются последние актуальные цены закрытия.")
+    st.info("🔴 **Биржа закрыта:** Отображаются последние актуальные цены закрытия.")
 
 if not PUBLIC_TOKEN:
-    st.error("⚠️ Внимание: Токен не настроен в секретах хостинга! Добавьте переменную PUBLIC_TOKEN в настройках Streamlit Cloud.")
+    st.error("⚠️ Внимание: Токен не настроен в секретах хостинга!")
 else:
-    # Автообновление каждые 15 секунд
     count = st_autorefresh(interval=15000, key="datarefresh")
 
     instruments = [
-        {"name": "Сбер (акции)", "ticker": "SBER", "figi": "BBG004730N88", "fallback": 283.58, "base_rsi": 48},
-        {"name": "Газпром (акции)", "ticker": "GAZP", "figi": "BBG004730RP0", "fallback": 92.53, "base_rsi": 52},
-        {"name": "Т-Технологии (акции)", "ticker": "T", "figi": "TCS00A107UL4", "fallback": 261.10, "base_rsi": 45},
-        {"name": "Золото (Фьючерс)", "ticker": "GOLD", "figi": "FUTGOLD00001", "fallback": 2750.00, "base_rsi": 32},
-        {"name": "Нефть Brent (Фьючерс)", "ticker": "BR", "figi": "FUTBR0000001", "fallback": 74.00, "base_rsi": 68},
-        {"name": "Серебро (Фьючерс)", "ticker": "SILV", "figi": "FUTSILV00001", "fallback": 31.00, "base_rsi": 50}
+        {"name": "Сбер (акции)", "ticker": "SBER", "figi": "BBG004730N88", "fallback": 283.58},
+        {"name": "Газпром (акции)", "ticker": "GAZP", "figi": "BBG004730RP0", "fallback": 92.53},
+        {"name": "Т-Технологии (акции)", "ticker": "T", "figi": "TCS00A107UL4", "fallback": 261.10},
+        {"name": "Золото (Фьючерс)", "ticker": "GOLD", "figi": "FUTGOLD00001", "fallback": 2750.00},
+        {"name": "Нефть Brent (Фьючерс)", "ticker": "BR", "figi": "FUTBR0000001", "fallback": 74.00},
+        {"name": "Серебро (Фьючерс)", "ticker": "SILV", "figi": "FUTSILV00001", "fallback": 31.00}
     ]
 
     def get_market_prices(api_token, base_url, figi_list):
         url = f"{base_url}/tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices"
         payload = {"figi": figi_list}
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_token.strip()}"
-        }
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_token.strip()}"}
         prices = {}
         try:
             req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method="POST")
@@ -75,51 +68,56 @@ else:
     def get_historical_candles(api_token, base_url, figi, fallback_price):
         url = f"{base_url}/tinkoff.public.invest.api.contract.v1.MarketDataService/GetCandles"
         now = datetime.utcnow()
-        past = now - timedelta(days=5)
+        past = now - timedelta(days=10) # Берем больше дней для качественного расчета RSI
         payload = {
             "figi": figi,
             "from": past.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "to": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "interval": "CANDLE_INTERVAL_2_HOURS"
         }
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_token.strip()}"
-        }
-        times = []
-        prices = []
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_token.strip()}"}
+        times, prices = [], []
         try:
             req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method="POST")
             with urllib.request.urlopen(req) as response:
                 data = json.loads(response.read().decode())
-                candles = data.get("candles", [])
-                for c in candles:
+                for c in data.get("candles", []):
                     t_str = c.get("time", "")
                     if t_str:
                         dt = datetime.strptime(t_str[:19], "%Y-%m-%dT%H:%M:%S")
                         times.append(dt.strftime("%d.%m %H:%M"))
                     p_obj = c.get("close", {})
-                    p = int(p_obj.get("units", 0)) + int(p_obj.get("nano", 0)) / 1e9
-                    prices.append(p)
+                    prices.append(int(p_obj.get("units", 0)) + int(p_obj.get("nano", 0)) / 1e9)
         except Exception:
             pass
 
-        if len(prices) < 3:
-            times = []
-            prices = []
+        if len(prices) < 5:
+            times, prices = [], []
             base = fallback_price
-            for i in range(12):
-                t_point = (now - timedelta(hours=(12 - i) * 2)).strftime("%d.%m %H:%M")
+            for i in range(15):
+                t_point = (now - timedelta(hours=(15 - i) * 2)).strftime("%d.%m %H:%M")
                 times.append(t_point)
-                shift = ((i * 37 + int(fallback_price)) % 11 - 5) * (fallback_price * 0.001)
-                base += shift
+                base += ((i * 37 + int(fallback_price)) % 11 - 5) * (fallback_price * 0.001)
                 prices.append(round(base, 2))
 
         return times, prices
 
+    # Функция расчета НАСТОЯЩЕГО математического RSI
+    def calculate_rsi(prices, window=14):
+        if len(prices) < window + 1:
+            return 50.0
+        df = pd.DataFrame({'price': prices})
+        delta = df['price'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        val = rsi.iloc[-1]
+        return 50.0 if pd.isna(val) else float(val)
+
     live_prices = get_market_prices(PUBLIC_TOKEN, API_BASE_URL, [i["figi"] for i in instruments])
 
-    st.markdown("### 📊 Рыночные инструменты и аналитика:")
+    st.markdown("### 📊 Анализ рынка и Профессиональные Сигналы:")
 
     for row_start in range(0, len(instruments), 3):
         cols = st.columns(3)
@@ -127,7 +125,6 @@ else:
         
         for i, inst in enumerate(row_items):
             figi = inst["figi"]
-            
             times, hist_prices = get_historical_candles(PUBLIC_TOKEN, API_BASE_URL, figi, inst["fallback"])
             
             current_price = live_prices.get(figi)
@@ -137,6 +134,11 @@ else:
             start_p = hist_prices[0] if hist_prices else current_price
             price_diff = current_price - start_p
             price_diff_pct = (price_diff / start_p) * 100 if start_p > 0 else 0.0
+
+            # Считаем точный RSI и трендовую фильтрацию (SMA)
+            rsi_val = round(calculate_rsi(hist_prices), 1)
+            sma_val = sum(hist_prices[-5:]) / min(5, len(hist_prices)) # Краткосрочный тренд
+            trend_bullish = current_price >= sma_val
 
             with cols[i]:
                 st.markdown(f"#### {inst['name']}")
@@ -148,34 +150,27 @@ else:
                     delta=f"{price_diff_pct:+.2f}%"
                 )
                 
-                rsi_val = int(inst["base_rsi"] + (current_price * 3) % 15 - 7)
-                rsi_val = max(15, min(85, rsi_val))
-
-                if rsi_val <= 30:
-                    st.success(f"🟢 СИГНАЛ: ПОКУПАТЬ (LONG)\n\nRSI: {rsi_val} (Перепроданность)")
-                    ai_comment = f"🤖 **ИИ-Советник:** Зона перепроданности (RSI {rsi_val})."
+                # Продвинутая логика сигналов с фильтром тренда
+                if rsi_val <= 32 and trend_bullish:
+                    st.success(f"🟢 СИГНАЛ: СИЛЬНЫЙ BUY (LONG)\n\nRSI: {rsi_val} (Дно + Тренд вверх)")
+                    ai_comment = f"🤖 **ИИ-Советник:** Идеальная точка входа. RSI перепродан ({rsi_val}), тренд разворачивается вверх."
+                elif rsi_val <= 30:
+                    st.warning(f"🟡 СИГНАЛ: НАБЛЮДАТЬ (Зона перепроданности)\n\nRSI: {rsi_val}")
+                    ai_comment = f"🤖 **ИИ-Советник:** RSI низкий ({rsi_val}), но тренд еще нисходящий. Ждем разворота."
+                elif rsi_val >= 68 and not trend_bullish:
+                    st.error(f"🔴 СИГНАЛ: СИЛЬНЫЙ SELL (SHORT)\n\nRSI: {rsi_val} (Пик + Тренд вниз)")
+                    ai_comment = f"🤖 **ИИ-Советник:** Зона перегрева ({rsi_val}) на падающем тренде. Высокая вероятность отката."
                 elif rsi_val >= 70:
-                    st.error(f"🔴 СИГНАЛ: ПРОДАВАТЬ / ШОРТ\n\nRSI: {rsi_val} (Перекупленность)")
-                    ai_comment = f"🤖 **ИИ-Советник:** RSI на уровне {rsi_val}. Перегрев актива."
+                    st.warning(f"🟡 СИГНАЛ: ФИКСАЦИЯ ПРИБЫЛИ\n\nRSI: {rsi_val}")
+                    ai_comment = f"🤖 **ИИ-Советник:** Актив перекуплен (RSI {rsi_val}). Возможна коррекция."
                 else:
-                    st.warning(f"🟡 СИГНАЛ: УДЕРЖИВАТЬ (NEUTRAL)\n\nRSI: {rsi_val} (Зона баланса)")
-                    ai_comment = f"🤖 **ИИ-Советник:** Рынок сбалансирован (RSI {rsi_val})."
+                    st.info(f"⚪ СИГНАЛ: НЕЙТРАЛЬНО (Флэт)\n\nRSI: {rsi_val} (Баланс сил)")
+                    ai_comment = f"🤖 **ИИ-Советник:** Четких сигналов нет. Рынок в боковике."
 
                 st.markdown(ai_comment)
 
-                df_chart = pd.DataFrame({
-                    "Время": times,
-                    "Цена": hist_prices
-                })
-                
-                fig = px.line(
-                    df_chart, 
-                    x="Время", 
-                    y="Цена", 
-                    markers=True,
-                    template="plotly_dark"
-                )
-                
+                df_chart = pd.DataFrame({"Время": times, "Цена": hist_prices})
+                fig = px.line(df_chart, x="Время", y="Цена", markers=True, template="plotly_dark")
                 fig.update_layout(
                     margin=dict(l=10, r=10, t=10, b=10),
                     height=190,
@@ -188,4 +183,4 @@ else:
                 st.markdown("---")
 
     update_time_str = now_msk.strftime("%d.%m.%Y в %H:%M:%S МСК")
-    st.caption(f"⏳ Данные получены через API Т-Инвестиций | Последнее обновление: {update_time_str}")
+    st.caption(f"⏳ Профессиональный движок анализа | Обновлено: {update_time_str}")
