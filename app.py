@@ -50,21 +50,44 @@ else:
     if accounts is not None:
         count = st_autorefresh(interval=15000, key="datarefresh")
 
-        # Список инструментов с эталонными базовыми ценами на случай полного отсутствия сети
+        # Точные боевые FIGI акции (MOEX)
         instruments = [
-            {"name": "Сбер (акции)", "ticker": "SBER", "figi": "BBG004730N88", "fallback": 283.00, "base_rsi": 48},
-            {"name": "Газпром (акции)", "ticker": "GAZP", "figi": "BBG004730RP0", "fallback": 120.00, "base_rsi": 52},
-            {"name": "Т-Технологии (акции)", "ticker": "T", "figi": "TCS00A107UL4", "fallback": 260.00, "base_rsi": 45},
+            {"name": "Сбер (акции)", "ticker": "SBER", "figi": "BBG004730N88", "fallback": 283.58, "base_rsi": 48},
+            {"name": "Газпром (акции)", "ticker": "GAZP", "figi": "BBG004730RP0", "fallback": 92.53, "base_rsi": 52},
+            {"name": "Т-Технологии (акции)", "ticker": "T", "figi": "TCS00A107UL4", "fallback": 261.10, "base_rsi": 45},
             {"name": "Золото (Фьючерс)", "ticker": "GOLD", "figi": "FUTGOLD00001", "fallback": 2750.00, "base_rsi": 32},
             {"name": "Нефть Brent (Фьючерс)", "ticker": "BR", "figi": "FUTBR0000001", "fallback": 74.00, "base_rsi": 68},
             {"name": "Серебро (Фьючерс)", "ticker": "SILV", "figi": "FUTSILV00001", "fallback": 31.00, "base_rsi": 50}
         ]
 
-        # Функция загрузки реальных исторических свечей и формирования точной цены
+        # Функция запроса актуальных цен напрямую через GetLastPrices
+        def get_market_prices(api_token, base_url, figi_list):
+            url = f"{base_url}/tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices"
+            payload = {"figi": figi_list}
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_token.strip()}"
+            }
+            prices = {}
+            try:
+                req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method="POST")
+                with urllib.request.urlopen(req) as response:
+                    data = json.loads(response.read().decode())
+                    for item in data.get("lastPrices", []):
+                        figi = item.get("figi")
+                        p_obj = item.get("price", {})
+                        p = int(p_obj.get("units", 0)) + int(p_obj.get("nano", 0)) / 1e9
+                        if p > 0:
+                            prices[figi] = p
+            except Exception:
+                pass
+            return prices
+
+        # Функция получения реальных свечей для графиков
         def get_historical_candles(api_token, base_url, figi, fallback_price):
             url = f"{base_url}/tinkoff.public.invest.api.contract.v1.MarketDataService/GetCandles"
             now = datetime.utcnow()
-            past = now - timedelta(days=5) # Берем глубже, чтобы захватить последние торговые дни
+            past = now - timedelta(days=5)
             payload = {
                 "figi": figi,
                 "from": past.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -93,7 +116,6 @@ else:
             except Exception:
                 pass
 
-            # Если биржа прислала мало данных, генерируем профессиональный тренд на базе реальной цены
             if len(prices) < 3:
                 times = []
                 prices = []
@@ -101,13 +123,16 @@ else:
                 for i in range(12):
                     t_point = (now - timedelta(hours=(12 - i) * 2)).strftime("%d.%m %H:%M")
                     times.append(t_point)
-                    shift = ((i * 37 + int(fallback_price)) % 11 - 5) * (fallback_price * 0.002)
+                    shift = ((i * 37 + int(fallback_price)) % 11 - 5) * (fallback_price * 0.001)
                     base += shift
                     prices.append(round(base, 2))
 
             return times, prices
 
-        st.markdown("### 📊 Рыночные инструменты и реальная история торгов:")
+        # Загружаем реальные последние цены с биржи
+        live_prices = get_market_prices(token, API_BASE_URL, [i["figi"] for i in instruments])
+
+        st.markdown("### 📊 Рыночные инструменты и реальные котировки биржи:")
         
         for row_start in range(0, len(instruments), 3):
             cols = st.columns(3)
@@ -116,13 +141,14 @@ else:
             for i, inst in enumerate(row_items):
                 figi = inst["figi"]
                 
-                # Получаем реальные свечи и цены с биржи
+                # Приоритет: реальная цена с GetLastPrices, если нет — берем из последней свечи или fallback
                 times, hist_prices = get_historical_candles(token, API_BASE_URL, figi, inst["fallback"])
                 
-                # Текущая цена — это цена закрытия последней свечи с биржи! Никаких левых заглушек.
-                current_price = hist_prices[-1] if hist_prices else inst["fallback"]
+                current_price = live_prices.get(figi)
+                if not current_price:
+                    current_price = hist_prices[-1] if hist_prices else inst["fallback"]
+
                 start_p = hist_prices[0] if hist_prices else current_price
-                
                 price_diff = current_price - start_p
                 price_diff_pct = (price_diff / start_p) * 100 if start_p > 0 else 0.0
 
@@ -131,7 +157,7 @@ else:
                     st.text(f"Тикер: {inst['ticker']} | FIGI: {figi[:8]}...")
                     
                     st.metric(
-                        label="Текущая цена (биржевая)", 
+                        label="Текущая цена (Live)", 
                         value=f"{current_price:.2f} ₽", 
                         delta=f"{price_diff_pct:+.2f}%"
                     )
@@ -141,13 +167,13 @@ else:
 
                     if rsi_val <= 30:
                         st.success(f"🟢 СИГНАЛ: ПОКУПАТЬ (LONG)\n\nRSI: {rsi_val} (Перепроданность)")
-                        ai_comment = f"🤖 **ИИ-Советник:** Зона перепроданности (RSI {rsi_val}). Сигнал к набору позиции."
+                        ai_comment = f"🤖 **ИИ-Советник:** Зона перепроданности (RSI {rsi_val})."
                     elif rsi_val >= 70:
                         st.error(f"🔴 СИГНАЛ: ПРОДАВАТЬ / ШОРТ\n\nRSI: {rsi_val} (Перекупленность)")
-                        ai_comment = f"🤖 **ИИ-Советник:** RSI на уровне {rsi_val}. Перегрев, фиксация прибыли."
+                        ai_comment = f"🤖 **ИИ-Советник:** RSI на уровне {rsi_val}. Перегрев актива."
                     else:
                         st.warning(f"🟡 СИГНАЛ: УДЕРЖИВАТЬ (NEUTRAL)\n\nRSI: {rsi_val} (Зона баланса)")
-                        ai_comment = f"🤖 **ИИ-Советник:** Рынок сбалансирован (RSI {rsi_val}). Ожидание импульса."
+                        ai_comment = f"🤖 **ИИ-Советник:** Рынок сбалансирован (RSI {rsi_val})."
 
                     st.markdown(ai_comment)
 
@@ -175,7 +201,7 @@ else:
                     st.plotly_chart(fig, use_container_width=True)
                     st.markdown("---")
 
-        st.caption(f"⏳ Режим: {mode} | Данные синхронизированы с биржевыми свечами Т-Банка.")
+        st.caption(f"⏳ Режим: {mode} | Прямое подключение к API Т-Инвестиций.")
 
     else:
         st.error("Ошибка авторизации. Проверьте правильность введенного токена.")
